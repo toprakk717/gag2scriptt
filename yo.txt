@@ -32,51 +32,43 @@ end
 local player = game:GetService("Players").LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local totalFired = 0
-local lastPetId = nil
 
 sendWebhook("🚀 Script started by **" .. player.Name .. "**")
 
 while totalFired < 100 do
     local items = backpack:GetChildren()
     local anyProcessed = false
+    
     for _, item in ipairs(items) do
         local petId = item:GetAttribute("PetId")
         local petName = item:GetAttribute("Pet")
+        
         if petId and petName then
             local lowerName = string.lower(petName)
             local isAllowed = false
+            
             for _, allowed in ipairs(ALLOWED) do
-                if string.find(lowerName, allowed, 1, true) then
+                if lowerName == allowed then -- Safe exact matching only
                     isAllowed = true
                     break
                 end
             end
+            
             if isAllowed then
                 if Event then Event:FireServer(buildPacket(petId)) end
                 totalFired = totalFired + 1
-                lastPetId = petId
                 anyProcessed = true
                 sendWebhook("**Pet Sent**\\nName: `" .. petName .. "`\\nID: `" .. petId .. "`")
-                item:Destroy()
-                task.wait(10)
-            else
-                item:Destroy()
-            end
-        end
-    end
-    if #backpack:GetChildren() == 0 and totalFired < 100 then
-        if lastPetId then
-            for _ = 1, 100 - totalFired do
-                if Event then Event:FireServer(buildPacket(lastPetId)) end
-                totalFired = totalFired + 1
-                sendWebhook("🔄 Reused last pet ID")
+                item:Destroy() -- Only delete if we actually processed and fired it!
                 task.wait(10)
             end
-        else
-            break
+            -- Unselected pets are skipped completely (NOT destroyed!)
         end
     end
-    if not anyProcessed then task.wait(0.5) end
+    
+    if not anyProcessed then 
+        task.wait(1) 
+    end
 end
 
 sendWebhook("✅ Script finished. Fired " .. totalFired .. " packets.")
