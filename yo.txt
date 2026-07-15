@@ -29,7 +29,8 @@ local function sendWebhook(msg)
     end
 end
 
--- Build a single item block for the binary payload
+-- Exact dynamic item block builder
+-- Automatically encodes exact key/category length bytes (\x05, \x06, \n etc.)
 local function buildItemBlock(itemKey, count, category)
     local parts = {
         "\x1C",
@@ -43,8 +44,8 @@ local function buildItemBlock(itemKey, count, category)
     return table.concat(parts)
 end
 
--- Multi‑item header (works for both single and multiple items)
-local HEADER = "!\x013\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+-- Static header from multi-item Cobalt call
+local HEADER = "!\x01\x1C\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
 
 sendWebhook("🚀 **Mass Sender Started** by " .. player.Name)
 
@@ -72,9 +73,8 @@ while true do
             local petName = item:GetAttribute("Pet")
             local petId = item:GetAttribute("PetId")
             if petName and petId and petLookup[petName:lower()] then
-                -- For pets we use "$" + PetId as key, count is always 1
                 table.insert(queue, {
-                    key = "$" .. petId,
+                    key = "$" .. tostring(petId),
                     count = 1,
                     category = "Pets",
                     instance = item
@@ -98,7 +98,7 @@ while true do
     end
     payload = payload .. "\x00\x00\x00"
 
-    -- Fire the remote – items are sent, server handles removal
+    -- Fire the remote with constructed byte buffer
     if Event then
         Event:FireServer(buffer.fromstring(payload))
     end
