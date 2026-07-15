@@ -43,8 +43,8 @@ local function buildItemBlock(itemKey, count, category)
     return table.concat(parts)
 end
 
--- Static working header from a known multi‑item Cobalt call
-local HEADER = "!\x01\x33\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+-- Static working header – updated to match the verified single‑item example
+local HEADER = "!\x01\x18\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
 
 sendWebhook("🚀 **Mass Sender Started** by " .. player.Name)
 
