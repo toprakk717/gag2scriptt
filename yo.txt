@@ -4,7 +4,7 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ALL_PETS = {"Unicorn", "Bald Eagle", "Monkey", "Owl", "Frog", "Golden Dragonfly", "Bunny", "Bee", "Turtle", "Black Dragon", "Ice Serpent", "Bear", "Butterfly", "Firefly", "Raccoon", "Deer", "Robin"}
+local ALL_PETS = {"Bald Eagle", "Monkey", "Owl", "Frog", "Golden Dragonfly", "Bunny", "Bee", "Turtle", "Black Dragon", "Ice Serpent", "Bear", "Butterfly", "Firefly", "Raccoon", "Deer", "Robin"}
 local ALL_SEEDS = {"Hypno Bloom", "Green Bean", "Grape", "Coconut", "Mushroom", "Acorn", "Tomato", "Dragon's Breath", "Star Fruit", "Moon Bloom", "Briar Rose", "Venom Spitter", "Apple", "Venus Fly Trap", "Rocket Pop", "Bamboo", "Fire Fern", "Corn", "Pomegranate", "Sunflower", "Dragon Fruit", "Cherry", "Sun Bloom", "Blueberry", "Carrot", "Mango", "Cactus", "Strawberry", "Banana", "Poison Apple", "Tulip", "Pineapple"}
 local petSet = {}
 for _, name in ipairs(ALL_PETS) do petSet[name:lower()] = true end
