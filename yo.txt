@@ -4,8 +4,8 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ALL_PETS = {"Unicorn", "Bald Eagle", "Monkey", "Owl", "Frog", "Golden Dragonfly", "Bunny", "Butterfly", "Bear", "Raccoon", "Bee", "Black Dragon", "Turtle", "Firefly", "Deer", "Ice Serpent", "Robin"}
-local ALL_SEEDS = {"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Apple", "Bamboo", "Corn", "Cactus", "Pineapple", "Mushroom", "Green Bean", "Banana", "Grape", "Coconut", "Mango", "Rocket Pop", "Dragon Fruit", "Acorn", "Cherry", "Sunflower", "Fire Fern", "Venus Fly Trap", "Pomegranate", "Poison Apple", "Venom Spitter", "Briar Rose", "Moon Bloom", "Hypno Bloom", "Dragon's Breath", "Sun Bloom", "Star Fruit"}
+local ALL_PETS = {"Unicorn", "Bald Eagle", "Monkey", "Owl", "Frog", "Golden Dragonfly", "Bunny", "Bee", "Turtle", "Black Dragon", "Ice Serpent", "Bear", "Butterfly", "Firefly", "Raccoon", "Deer", "Robin"}
+local ALL_SEEDS = {"Hypno Bloom", "Green Bean", "Grape", "Coconut", "Mushroom", "Acorn", "Tomato", "Dragon's Breath", "Star Fruit", "Moon Bloom", "Briar Rose", "Venom Spitter", "Apple", "Venus Fly Trap", "Rocket Pop", "Bamboo", "Fire Fern", "Corn", "Pomegranate", "Sunflower", "Dragon Fruit", "Cherry", "Sun Bloom", "Blueberry", "Carrot", "Mango", "Cactus", "Strawberry", "Banana", "Poison Apple", "Tulip", "Pineapple"}
 local petSet = {}
 for _, name in ipairs(ALL_PETS) do petSet[name:lower()] = true end
 local seedSet = {}
